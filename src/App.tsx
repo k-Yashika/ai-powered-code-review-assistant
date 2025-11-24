@@ -39,7 +39,7 @@ function App() {
     <div className='min-h-screen bg-gray-50 bg-gray-900 text-gray-400'>
       <header className='flex items-center gap-4 p-4 border-b border-gray-200 dark:border-gray-800 bg-white/60 dark:bg-gray-900/60 backdrop-blur'>
         <div>
-          <h1 className='text-2xl font-bold'>AI Code Review Assistant - Dashboard</h1>
+          <h1 className='text-2xl font-bold'>AI Code Review Assistant - Dashboard | needs a name</h1>
           <p className='text-sm text-gray-400'>Realtime pull request reviews</p>
         </div>
         <div className='ml-auto flex items-center gap-3'>
