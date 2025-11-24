@@ -7,6 +7,7 @@ AI Powered COde Review Assistant
 - creating a dashboard for engineering teams to track code quality metrics over time
 - learn: webhook integrations, AI model fine tuning, building something devs actually
 	want to use
+
 - Challenges:
 	- handling large codebases
 	- understanding context across multiple files
