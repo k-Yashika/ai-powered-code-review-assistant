@@ -170,7 +170,7 @@ function App() {
           </div>
 
           <div>
-            <h3 className='font-medium'>Recent Reviews</h3>
+            <h3 className='font-medium text-gray-50'>Recent Reviews</h3>
             <ul className='mt-2 space-y-2'>
               {reviews.length === 0 && <li className='text-xs text-gray-500'>No review yet</li>}
               {reviews.slice(0,5).map(r => (
