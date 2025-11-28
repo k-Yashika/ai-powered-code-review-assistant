@@ -1,258 +1,197 @@
-import requests
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import os
-from dotenv import load_dotenv
-from groq import Groq
-from datetime import datetime
+import { useCallback, useEffect, useState } from 'react';
+import './index.css'
+import { motion } from "framer-motion";
 
-app = Flask(__name__)
-CORS(app)  # Enable CORS for frontend communication
-
-load_dotenv()
-
-# Groq client
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-# GitHub token
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-
-# In-memory storage (replace with database in production)
-PULL_REQUESTS = []
-REVIEWS = []
-DIFFS = {}
-
-def review_code(diff_text):
-    try:
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": "You are a senior software engineer performing code reviews."},
-                {"role": "user", "content": f"""Review this code diff:
-
-{diff_text}
-
-Provide:
-- Potential bugs
-- Architectural concerns
-- Simplification suggestions
-- Security issues
-
-Use bullet points."""}
-            ],
-            max_tokens=1000,
-            temperature=0.5
-        )
-        
-        return response.choices[0].message.content
-    
-    except Exception as e:
-        print(f"Error: {str(e)}")
-        return f"Error: {str(e)}"
-
-
-def fetch_github_prs(owner, repo):
-    """Fetch open PRs from GitHub"""
-    url = f"https://api.github.com/repos/{owner}/{repo}/pulls"
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "AI-Code-Reviewer"
+function usePoll(url, interval = 10000){
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let mounted = true;
+    async function fetchOnce() {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = await res.json();
+      if (mounted) setData(j);
+    } catch (e) {
+      console.error("poll error", url, e);
     }
-    
-    try:
-        response = requests.get(url, headers=headers)
-        if response.ok:
-            prs = response.json()
-            return [{
-                "id": f"{owner}/{repo}/{pr['number']}",
-                "number": pr["number"],
-                "title": pr["title"],
-                "author": pr["user"]["login"],
-                "repo": f"{owner}/{repo}",
-                "status": pr["state"],
-                "url": pr["html_url"]
-            } for pr in prs]
-    except Exception as e:
-        print(f"Error fetching PRs: {e}")
-    
-    return []
-
-
-@app.route("/api/prs", methods=["GET"])
-def get_prs():
-    """Get list of open PRs - configure your repos here"""
-    # TODO: Configure your GitHub repos here
-    owner = os.getenv("GITHUB_OWNER", "octocat")
-    repo = os.getenv("GITHUB_REPO", "Hello-World")
-    
-    prs = fetch_github_prs(owner, repo)
-    
-    # Merge with stored PRs from webhooks
-    all_prs = {pr["id"]: pr for pr in PULL_REQUESTS}
-    for pr in prs:
-        all_prs[pr["id"]] = pr
-    
-    PULL_REQUESTS.clear()
-    PULL_REQUESTS.extend(all_prs.values())
-    
-    return jsonify(list(all_prs.values()))
-
-
-@app.route("/api/prs/<path:pr_id>/diff", methods=["GET"])
-def get_diff(pr_id):
-    """Get diff for a specific PR"""
-    # Check if we have it cached
-    if pr_id in DIFFS:
-        return DIFFS[pr_id], 200, {'Content-Type': 'text/plain'}
-    
-    # Parse pr_id (format: owner/repo/number)
-    try:
-        parts = pr_id.split("/")
-        if len(parts) >= 3:
-            owner, repo, pr_number = parts[0], parts[1], parts[2]
-            
-            url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/files"
-            headers = {
-                "Authorization": f"token {GITHUB_TOKEN}",
-                "Accept": "application/vnd.github+json",
-                "User-Agent": "AI-Code-Reviewer"
-            }
-            
-            response = requests.get(url, headers=headers)
-            if response.ok:
-                files = response.json()
-                diffs = []
-                for f in files:
-                    diff = f.get("patch", "")
-                    if diff:
-                        diffs.append(f"--- {f['filename']} ---\n{diff}")
-                
-                full_diff = "\n\n".join(diffs)
-                DIFFS[pr_id] = full_diff
-                return full_diff, 200, {'Content-Type': 'text/plain'}
-    except Exception as e:
-        print(f"Error fetching diff: {e}")
-    
-    return "Unable to fetch diff", 404, {'Content-Type': 'text/plain'}
-
-
-@app.route("/api/prs/<path:pr_id>/review", methods=["GET", "POST"])
-def trigger_review(pr_id):
-    """Trigger AI review for a PR"""
-    # Get the diff
-    if pr_id not in DIFFS:
-        # Try to fetch it first
-        get_diff(pr_id)
-    
-    if pr_id not in DIFFS:
-        return jsonify({"error": "Could not load diff"}), 404
-    
-    diff_text = DIFFS[pr_id]
-    
-    print(f"\n----- Running AI Review for {pr_id} -----")
-    review_text = review_code(diff_text)
-    print(review_text)
-    print("\n----- End Review -----")
-    
-    # Find the PR details
-    pr_details = next((pr for pr in PULL_REQUESTS if pr["id"] == pr_id), None)
-    
-    # Store the review
-    review_obj = {
-        "id": len(REVIEWS),
-        "pr_id": pr_id,
-        "pr": pr_details or {"title": pr_id, "number": pr_id},
-        "review": review_text,
-        "summary": review_text[:100] + "..." if len(review_text) > 100 else review_text,
-        "timestamp": datetime.now().isoformat()
     }
-    
-    REVIEWS.insert(0, review_obj)
-    
-    return jsonify({"status": "ok", "review": review_text})
+    fetchOnce();
+    const id = setInterval(fetchOnce, interval);
+    return () => {
+      mounted = false;
+      clearInterval(id);
+      };
+    }, [url, interval]);
+    return data;
+  }
 
+function App() {
+  const [selectedPr, setSelectedPr] = useState<any | null>(null);
+  const [diffText, setDiffText] = useState<string>("");
+  const [reviewText, setReviewText] = useState<string>("");
+  const [running, setRunning] = useState<boolean>(false);
+  const [toast, setToast] = useState<any | null>(null);
 
-@app.route("/api/reviews", methods=["GET"])
-def get_reviews():
-    """Get all reviews"""
-    return jsonify(REVIEWS)
+  const prs = usePoll("/api/prs", 8000) || [];
+  const reviews = usePoll("/api/reviews", 8000) || [];
+  const metrics = usePoll("/api/metrics", 15000) || { total: 0, issues: 0, recent: [] };
 
+  useEffect(() => {
+    if (prs.length && !selectedPr) setSelectedPr(prs[0]);
+  }, [prs]);
 
-@app.route("/api/metrics", methods=["GET"])
-def get_metrics():
-    """Get metrics"""
-    return jsonify({
-        "total": len(PULL_REQUESTS),
-        "issues": sum(1 for r in REVIEWS if "bug" in r["review"].lower() or "issue" in r["review"].lower()),
-        "recent": REVIEWS[:5]
-    })
+  const openPR = useCallback(async (pr) => {
+    setSelectedPr(pr);
+    setDiffText("Loading diff...")
+    setReviewText("");
+    try {
+      const res = await fetch(`/api/prs/${encodeURIComponent(pr.id)}/diff`);
+      if (!res.ok) throw new Error(`Failed to load diff: ${res.status}`);
+      const j = await res.text();
+      setDiffText(j || "(no diff provided)");
+      } catch (e) {
+      console.error(e);
+      setDiffText(`Error loading diff: ${e.message}`);
+      }
+  }, []);
 
+  const runReview = useCallback(async (pr: any) => {
+    if (!pr) return;
+    setRunning(true);
+    setReviewText("Running AI review");
+    try{
+      const res = await fetch(`/api/prs/${encodeURIComponent(pr.id)}/review`);
+      if (!res.ok) throw new Error(`Review request failed: ${res.status}`);
+      const j = await res.json();
+      if (j.review) setReviewText(j.review);
+      else setReviewText("Review triggered. It may be processing; refresh for results.");
+      setToast({ type: "success", text: "Review Complete"});
+    } catch (e: any){
+      console.error(e);
+      setReviewText(`Error running review: ${e.message}`);
+      setToast({ type: "error", text: "Review failed"});
+    } finally{
+      setRunning(false);
+      setTimeout(() => setToast(null), 4000);
+    }
+  }, []);
 
-@app.route("/github/webhook", methods=["POST"])
-def webhook():
-    """Handle GitHub webhooks"""
-    try:
-        data = request.json
-        event_type = request.headers.get("X-GitHub-Event")
+  return (
+    <div className='min-h-screen bg-gray-50 bg-gray-900 text-gray-400'>
+      <header className='flex items-center gap-4 p-4 border-b border-gray-200 dark:border-gray-800 bg-white/60 dark:bg-gray-900/60 backdrop-blur'>
+        <div>
+          <h1 className='text-2xl font-bold'>AI Code Review Assistant - Dashboard</h1>
+          <p className='text-sm text-gray-400'>Realtime pull request reviews</p>
+        </div>
+        <div className='ml-auto flex items-center gap-3'>
+          <button className='px-3 py-1 rounded-md bg-blue-600 text-white text-sm shadow'
+          onClick={() => runReview(selectedPr)}
+          disabled={running || !selectedPr}>
+            {running ? "Running..." : "Run Review"}
+          </button>
+        </div>
+      </header>
 
-        if event_type != "pull_request":
-            return jsonify({"status": "ignored", "event": event_type})
-        
-        pr = data["pull_request"]
-        repo = data["repository"]["name"]
-        owner = data["repository"]["owner"]["login"]
-        pr_number = pr["number"]
-        pr_id = f"{owner}/{repo}/{pr_number}"
+      <main className='p-6 grid grid-cols-12 gap-6'>
+        {/* Left Column: PR Lists */}
+        <aside className='col-span-3 bg-gray-800 rounded-2xl p-4 shadow-sm h-[70vh] overflow-auto'>
+          <div className='flex items-center justify-between mb-4'>
+            <h2 className='font-semibold'>Open Pull Requests</h2>
+            <span className='text-xs text-gray-500'>{prs.length}</span>
+          </div>
+          {/* TODO */}
+          <ul className='space-y-2'>
+            {prs.length === 0 && <li className='text-sm text-gray-500'>No open requests</li>}
+            {prs.map((pr) => (
+              <li key={pr.id}>
+                <motion.button whileHover={{ scale: 1.02}}
+                className={`w-full text-left p-3 rounded-lg ${selectedPr && selectedPr.id === pr.id ? "bg-gray-100" : "hover:bg-gray-50"}`}
+                onClick={() => openPR(pr)}>
+                  <div className='flex items-center gap-2'>
+                    <div className='w-10 h-10 rounded-md bg-gray-200 flex items-center justify-center text-sm font-medium'>{pr.author ? pr.author[0].toUpperCase() : "G"}</div>
+                    <div className='flex-1'>
+                      <div className='text-sm font-medium'>{pr.title}</div>
+                      <div className='text-xs text-gray-500'>#{pr.number} . {pr.repo}</div>
+                    </div>
+                    <div className='text-xs text-gray-500'>{pr.status || "open"}</div>
+                  </div>
+                </motion.button>
+              </li>
+            ))}
+          </ul>
+        </aside>
 
-        # Store PR info
-        pr_obj = {
-            "id": pr_id,
-            "number": pr_number,
-            "title": pr["title"],
-            "author": pr["user"]["login"],
-            "repo": f"{owner}/{repo}",
-            "status": pr["state"],
-            "url": pr["html_url"]
-        }
-        
-        # Update or add PR
-        existing = next((i for i, p in enumerate(PULL_REQUESTS) if p["id"] == pr_id), None)
-        if existing is not None:
-            PULL_REQUESTS[existing] = pr_obj
-        else:
-            PULL_REQUESTS.append(pr_obj)
+        {/* Middle Column: Diff Viewer */}
+        <section className='col-span-6 bg-gray-800 rounded-2xl p-4 shadow-sm h-[70vh] overflow-auto'>
+          <div className='flex items-center justify-between mb-3'>
+            <h2 className='font-semibold'>Diff</h2>
+            <div className='text-xs text-black'>{selectedPr ? `PR #${selectedPr.number}` : "No PR selected"}</div>
+          </div>
 
-        # Fetch and cache the diff
-        url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/files"
-        headers = {
-            "Authorization": f"token {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "AI-Code-Reviewer"
-        }
+          <pre className='whitespace-pre-wrap text-xs text-black bg-gray-200 p-3 rounded-lg border border-gray-100 overflow-auto'>
+            {diffText || "Select a PR to view the diff."}
+          </pre>
+        </section>
 
-        response = requests.get(url, headers=headers)
-        files = response.json()
+        {/* Right Column: AI Review Metrics */}
+        <aside className='col-span-3 bg-gray-800 rounded-2xl p-4 shadow-sm h-[70vh] overflow-auto'>
+          <div className='mb-4'>
+            <h2 className='font-semibold'>AI Review</h2>
+            <div className='text-xs text-gray-500'>Suggestions from the model appear here!</div>
+          </div>
 
-        diffs = []
-        for f in files:
-            diff = f.get("patch")
-            if diff:
-                diffs.append(f"--- {f['filename']} ---\n{diff}")
+          <div className='flex-1 mb-4'>
+            <div className='p-3 bg-gray-50 rounded-lg h-full overflow-auto text-sm font-sans'>
+              {reviewText ? (
+                <pre className='whitespace-pre-wrap font-sans text-sm'>{reviewText}</pre>
+              ) : (
+                <div className='text-sm text-gray-800'>No review yet. Click <span className='font-medium'>Run Review</span> to generate suggestions.</div>
+              )}
+            </div>
+          </div>
 
-        full_diff = "\n\n".join(diffs)
-        DIFFS[pr_id] = full_diff
+          <div className='mb-4'>
+            <h3 className='font-medium'>Quick Metrics</h3>
+            <div className='mt-2 grid grid-cols-3 gap-2'>
+              <div className='p-2 bg-gray-50 rounded text-center'>
+                <div className='text-xs text-gray-500'>PRs</div>
+                <div className='text-lg font-bold'>{metrics.total ?? 0}</div>
+              </div>
+              <div className='p-2 bg-gray-50 rounded text-center'>
+                <div className='text-xs text-gray-500'>Issues</div>
+                <div className='text-lg font-bold'>{metrics.issues ?? 0}</div>
+              </div>
+              <div className='p-2 bg-gray-50 rounded text-center'>
+                <div className='text-xs text-gray-500'>Recent</div>
+                <div className='text-lg font-bold'>{(metrics.recent || []).length}</div>
+              </div>
+            </div>
+          </div>
 
-        print(f"\n----- Webhook received for PR #{pr_number} -----")
-        print(f"Stored diff for {pr_id}")
+          <div>
+            <h3 className='font-medium'>Recent Reviews</h3>
+            <ul className='mt-2 space-y-2'>
+              {reviews.length === 0 && <li className='text-xs text-gray-500'>No review yet</li>}
+              {reviews.slice(0,5).map(r => (
+                <li key={r.id} className='p-2 bg-gray-50 rounded'>
+                  <div className='text-xs font-medium'>{r.pr.title}</div>
+                  <div className='text-xs text-gray-500'>{r.summary || (r.review || '').slice(0, 80)}</div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </aside>
 
-        return jsonify({"status": "received", "files": len(files), "pr_id": pr_id})
-    
-    except Exception as e:
-        print(f"Webhook error: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        {/* Toast */}
+        {toast && (
+          <div className={`fixed right-6 bottom-6 p-3 rounded-lg shadow-lg ${toast.type === 'sucess' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>{toast.text}</div>
+        )}
 
+        <footer className='p-4 text-center text-xs text-gray-500'>AI Powered Code Review Assistant</footer>
+      </main>
+    </div>
+  )
+}
 
-if __name__ == "__main__":
-    print("AI Code Reviewer backend running on port 5000")
-    print("Frontend should connect to http://localhost:5000")
-    app.run(port=5000, debug=True)
+export default App
